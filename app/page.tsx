@@ -20,7 +20,9 @@ const copy = {
     notShipReady: "Not ship-ready",
     scoreCardText: "Find the gap before users do.",
     repoLabel: "GitHub repo URL",
+    repoPlaceholder: "Enter a GitHub repository URL.",
     intentLabel: "What did you mean to build?",
+    intentPlaceholder: "Briefly describe what kind of project this is and what you want VibeCheck to verify.",
     run: "Run VibeCheck",
     running: "Running...",
     loadDemo: "Load demo",
@@ -66,7 +68,9 @@ const copy = {
     notShipReady: "배포 보류",
     scoreCardText: "사용자보다 먼저 문제를 찾습니다.",
     repoLabel: "GitHub repo URL",
+    repoPlaceholder: "깃허브 URL을 입력해주세요.",
     intentLabel: "만들려던 기능",
+    intentPlaceholder: "어떤 프로젝트인지, 무엇을 검증하고 싶은지 간단하게 설명해주세요.",
     run: "VibeCheck 실행",
     running: "실행 중...",
     loadDemo: "데모 불러오기",
@@ -107,8 +111,8 @@ const copy = {
 
 export default function Home() {
   const [locale, setLocale] = useState<Locale>("ko");
-  const [repoUrl, setRepoUrl] = useState(DEMO_REPO_URL);
-  const [intent, setIntent] = useState(DEMO_INTENT_KO);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [intent, setIntent] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [report, setReport] = useState<VibeReport | null>(null);
@@ -194,7 +198,6 @@ export default function Home() {
   function switchLocale() {
     const nextLocale = locale === "ko" ? "en" : "ko";
     setLocale(nextLocale);
-    setIntent(nextLocale === "ko" ? DEMO_INTENT_KO : DEMO_INTENT_EN);
     setReport(null);
     setError("");
     setCopyStatus("");
@@ -227,6 +230,7 @@ export default function Home() {
           <input
             disabled={isLoading}
             id="repoUrl"
+            placeholder={activeCopy.repoPlaceholder as string}
             value={repoUrl}
             onChange={(event) => setRepoUrl(event.target.value)}
           />
@@ -236,6 +240,7 @@ export default function Home() {
           <textarea
             disabled={isLoading}
             id="intent"
+            placeholder={activeCopy.intentPlaceholder as string}
             value={intent}
             onChange={(event) => setIntent(event.target.value)}
             rows={5}
