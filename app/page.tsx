@@ -16,9 +16,9 @@ const copy = {
     eyebrow: "Intent-aware validation for AI-built apps",
     lead:
       "Put in a repo and what you meant to build. Get evidence, risk files, failed checks, and the next prompt for your coding agent.",
-    demoVerdict: "Demo verdict",
-    notShipReady: "Not ship-ready",
-    scoreCardText: "Find the gap before users do.",
+    scoreCardLabel: "Ready when you are",
+    waitingVerdict: "No report yet",
+    scoreCardText: "Enter a repo or load the demo to start.",
     repoLabel: "GitHub repo URL",
     repoPlaceholder: "Enter a GitHub repository URL.",
     intentLabel: "What did you mean to build?",
@@ -64,9 +64,9 @@ const copy = {
     eyebrow: "AI로 만든 앱을 위한 의도 기반 검증",
     lead:
       "repo와 만들려던 기능을 넣으면 근거, 위험 파일, 실패한 검증, 코딩 에이전트에게 다시 줄 다음 프롬프트를 보여줍니다.",
-    demoVerdict: "데모 판정",
-    notShipReady: "배포 보류",
-    scoreCardText: "사용자보다 먼저 문제를 찾습니다.",
+    scoreCardLabel: "분석 대기",
+    waitingVerdict: "아직 리포트 없음",
+    scoreCardText: "repo를 입력하거나 데모를 불러오면 시작합니다.",
     repoLabel: "GitHub repo URL",
     repoPlaceholder: "깃허브 URL을 입력해주세요.",
     intentLabel: "만들려던 기능",
@@ -133,6 +133,8 @@ export default function Home() {
     progressSteps.length,
     report
   ]);
+  const scoreCardLabel = report ? (activeCopy.report as string) : (activeCopy.scoreCardLabel as string);
+  const scoreCardVerdict = report ? formatVerdict(report.verdict, locale) : (activeCopy.waitingVerdict as string);
 
   async function runVibeCheck() {
     const requestSequence = requestSequenceRef.current + 1;
@@ -218,8 +220,8 @@ export default function Home() {
           <p className="lead">{activeCopy.lead}</p>
         </div>
         <div className="score-card">
-          <span>{activeCopy.demoVerdict}</span>
-          <strong>{activeCopy.notShipReady}</strong>
+          <span>{scoreCardLabel}</span>
+          <strong>{scoreCardVerdict}</strong>
           <p>{activeCopy.scoreCardText}</p>
         </div>
       </section>
