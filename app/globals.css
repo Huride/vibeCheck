@@ -42,6 +42,12 @@ textarea {
   padding: 32px 0 24px;
 }
 
+.top-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
 .hero > * {
   min-width: 0;
 }

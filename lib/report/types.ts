@@ -1,7 +1,10 @@
 export type AnalyzeRequest = {
   repoUrl: string;
   intent: string;
+  locale?: Locale;
 };
+
+export type Locale = "en" | "ko";
 
 export type AnalyzeResponse =
   | { ok: true; report: VibeReport }

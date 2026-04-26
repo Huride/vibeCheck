@@ -1,7 +1,8 @@
 import { createDemoReport } from "@/lib/analyzer/demo-report";
 import { buildFixPrompt } from "@/lib/analyzer/fix-prompt";
+import { generateGeminiReportPatch } from "@/lib/analyzer/gemini";
 import { parseGitHubRepoUrl } from "@/lib/analyzer/url";
-import type { AnalyzeRequest, VibeReport } from "@/lib/report/types";
+import type { AnalyzeRequest, Locale, VibeReport } from "@/lib/report/types";
 
 const DEFAULT_INTENT =
   "Authenticated users should access /dashboard. Anonymous users should be redirected to /login before dashboard content renders.";
@@ -9,7 +10,8 @@ const DEFAULT_INTENT =
 export async function runAnalysis(request: AnalyzeRequest): Promise<VibeReport> {
   const repo = parseGitHubRepoUrl(request.repoUrl);
   const intent = request.intent.trim() || DEFAULT_INTENT;
-  const report = createDemoReport(intent, repo.normalizedUrl);
+  const locale = normalizeLocale(request.locale);
+  const report = createDemoReport(intent, repo.normalizedUrl, locale);
 
   const fixPrompt = buildFixPrompt({
     intent,
@@ -20,5 +22,22 @@ export async function runAnalysis(request: AnalyzeRequest): Promise<VibeReport> 
       .map((result) => result.command)
   });
 
-  return { ...report, fixPrompt };
+  const fallbackReport = { ...report, fixPrompt };
+  const aiPatch = await generateGeminiReportPatch(fallbackReport, locale);
+
+  if (!aiPatch) {
+    return fallbackReport;
+  }
+
+  return {
+    ...fallbackReport,
+    summary: aiPatch.summary || fallbackReport.summary,
+    findings: aiPatch.findings?.length ? aiPatch.findings : fallbackReport.findings,
+    suggestedTests: aiPatch.suggestedTests?.length ? aiPatch.suggestedTests : fallbackReport.suggestedTests,
+    fixPrompt: aiPatch.fixPrompt || fallbackReport.fixPrompt
+  };
+}
+
+function normalizeLocale(locale: Locale | undefined): Locale {
+  return locale === "ko" ? "ko" : "en";
 }

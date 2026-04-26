@@ -1,5 +1,5 @@
 import { runAnalysis } from "@/lib/analyzer/run-analysis";
-import type { AnalyzeRequest, AnalyzeResponse } from "@/lib/report/types";
+import type { AnalyzeRequest, AnalyzeResponse, Locale } from "@/lib/report/types";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -41,14 +41,21 @@ export async function POST(request: Request) {
     );
   }
 
+  const locale = normalizeLocale(analyzeRequest.locale);
+
   try {
     const report = await runAnalysis({
       repoUrl: analyzeRequest.repoUrl,
-      intent: analyzeRequest.intent
+      intent: analyzeRequest.intent,
+      locale
     });
     return NextResponse.json<AnalyzeResponse>({ ok: true, report });
   } catch (error) {
     const message = error instanceof Error ? error.message : "VibeCheck failed to analyze this repo.";
     return NextResponse.json<AnalyzeResponse>({ ok: false, error: message }, { status: 400 });
   }
+}
+
+function normalizeLocale(locale: unknown): Locale {
+  return locale === "ko" ? "ko" : "en";
 }
