@@ -1,6 +1,10 @@
 .superpowers/
 .worktrees/
+.next/
+*.tsbuildinfo
 .DS_Store
 node_modules/
 .env
 .env.local
+coverage/
+.playwright-cli/
