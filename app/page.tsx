@@ -29,7 +29,9 @@ const copy = {
     report: "Vibe report",
     vibeScore: "Vibe Score",
     riskFiles: "Risk files",
+    noRiskFiles: "No deterministic risk files found.",
     evidence: "Evidence",
+    noEvidence: "No evidence items were generated for this scan.",
     nextPrompt: "Next prompt",
     pastePrompt: "Paste this into Cursor or Claude",
     copyPrompt: "Copy fix prompt",
@@ -73,7 +75,9 @@ const copy = {
     report: "Vibe 리포트",
     vibeScore: "Vibe 점수",
     riskFiles: "위험 파일",
+    noRiskFiles: "결정적 위험 파일이 발견되지 않았습니다.",
     evidence: "근거",
+    noEvidence: "이번 스캔에서 생성된 근거 항목이 없습니다.",
     nextPrompt: "다음 프롬프트",
     pastePrompt: "Cursor 또는 Claude에 붙여넣기",
     copyPrompt: "수정 프롬프트 복사",
@@ -324,25 +328,33 @@ function ReportView({
 
         <h2>{text.riskFiles}</h2>
         <div className="list">
-          {report.riskFiles.map((file) => (
-            <article key={file.path} className="list-item">
-              <strong>{file.path}</strong>
-              <span>{file.confidence} {text.confidence}</span>
-              <p>{file.reason}</p>
-            </article>
-          ))}
+          {report.riskFiles.length > 0 ? (
+            report.riskFiles.map((file) => (
+              <article key={file.path} className="list-item">
+                <strong>{file.path}</strong>
+                <span>{file.confidence} {text.confidence}</span>
+                <p>{file.reason}</p>
+              </article>
+            ))
+          ) : (
+            <p className="empty-state">{text.noRiskFiles}</p>
+          )}
         </div>
 
         <h2>{text.evidence}</h2>
         <div className="list">
-          {report.findings.map((finding) => (
-            <article key={finding.title} className={`list-item severity-${finding.severity}`}>
-              <strong>{finding.title}</strong>
-              <span>{finding.severity}</span>
-              <p>{finding.evidence}</p>
-              <p>{finding.recommendation}</p>
-            </article>
-          ))}
+          {report.findings.length > 0 ? (
+            report.findings.map((finding) => (
+              <article key={finding.title} className={`list-item severity-${finding.severity}`}>
+                <strong>{finding.title}</strong>
+                <span>{finding.severity}</span>
+                <p>{finding.evidence}</p>
+                <p>{finding.recommendation}</p>
+              </article>
+            ))
+          ) : (
+            <p className="empty-state">{text.noEvidence}</p>
+          )}
         </div>
       </div>
 

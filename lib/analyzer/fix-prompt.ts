@@ -31,7 +31,12 @@ function formatFinding(finding: FixPromptFinding, locale: "en" | "ko"): string {
 
 export function buildFixPrompt(input: BuildFixPromptInput): string {
   const locale = input.locale === "ko" ? "ko" : "en";
-  const files = input.files.length > 0 ? input.files.map((file) => `- ${file}`).join("\n") : "- No specific files identified";
+  const files =
+    input.files.length > 0
+      ? input.files.map((file) => `- ${file}`).join("\n")
+      : locale === "ko"
+        ? "- 결정적 위험 파일 없음"
+        : "- No specific files identified";
   const findings =
     input.findings.length > 0
       ? input.findings.map((finding) => formatFinding(finding, locale)).join("\n")

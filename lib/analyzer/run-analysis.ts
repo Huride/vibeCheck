@@ -54,10 +54,11 @@ function createLiveRepoReport(
   intent: string,
   locale: Locale
 ): VibeReport {
-  const findings = localizeFindings(scanTextFiles(snapshot.textFiles, intent), locale);
+  const riskFindings = localizeFindings(scanTextFiles(snapshot.textFiles, intent), locale);
+  const findings = riskFindings.length > 0 ? riskFindings : [buildCoverageFinding(snapshot, locale)];
   const riskFiles = buildRiskFiles(snapshot, findings, intent, locale);
   const commandResults = buildCommandResults(snapshot, locale);
-  const suggestedTests = buildSuggestedTests(intent, locale);
+  const suggestedTests = buildSuggestedTests(intent, locale, riskFiles.length > 0);
   const score = calculateScore(findings);
 
   return {
@@ -86,6 +87,10 @@ function buildRiskFiles(
   const byPath = new Map<string, RiskFile>();
 
   for (const finding of findings) {
+    if (finding.severity === "info") {
+      continue;
+    }
+
     for (const file of finding.relatedFiles) {
       byPath.set(file, {
         path: file,
@@ -101,19 +106,6 @@ function buildRiskFiles(
         path,
         reason: locale === "ko" ? "파일 경로나 기능명이 입력한 의도와 관련되어 먼저 확인할 후보입니다." : "The file path or feature name matches the requested intent and should be reviewed first.",
         confidence: "medium"
-      });
-    }
-  }
-
-  if (byPath.size === 0) {
-    for (const path of snapshot.textFiles.slice(0, 3).map((file) => file.path)) {
-      byPath.set(path, {
-        path,
-        reason:
-          locale === "ko"
-            ? "가져온 repo 구조에서 우선 검토할 수 있는 주요 파일입니다."
-            : "A primary file fetched from the repository for initial review.",
-        confidence: "low"
       });
     }
   }
@@ -177,7 +169,7 @@ function getPackageScripts(packageJson: Record<string, unknown> | null): Record<
   return scripts && typeof scripts === "object" && !Array.isArray(scripts) ? (scripts as Record<string, string | undefined>) : {};
 }
 
-function buildSuggestedTests(intent: string, locale: Locale): SuggestedTest[] {
+function buildSuggestedTests(intent: string, locale: Locale, hasRiskFiles: boolean): SuggestedTest[] {
   if (locale === "ko") {
     return [
       {
@@ -189,7 +181,11 @@ function buildSuggestedTests(intent: string, locale: Locale): SuggestedTest[] {
       {
         title: "회귀 방지 테스트 추가",
         type: "integration",
-        steps: ["위험 파일 중 첫 번째 파일의 동작을 격리한다", "성공/실패 케이스를 각각 추가한다", "테스트 명령을 실행한다"],
+        steps: [
+          hasRiskFiles ? "위험 파일 중 첫 번째 파일의 동작을 격리한다" : "입력한 의도와 가장 가까운 화면 또는 문서를 기준으로 기대 동작을 정의한다",
+          "성공/실패 케이스를 각각 추가한다",
+          "테스트 명령을 실행한다"
+        ],
         expectedResult: "향후 AI 수정이 같은 요구사항을 깨면 테스트가 실패합니다."
       }
     ];
@@ -205,7 +201,11 @@ function buildSuggestedTests(intent: string, locale: Locale): SuggestedTest[] {
     {
       title: "Add a regression test",
       type: "integration",
-      steps: ["Isolate the first risky file behavior", "Add passing and failing cases", "Run the test command"],
+      steps: [
+        hasRiskFiles ? "Isolate the first risky file behavior" : "Define expected behavior from the closest matching screen or docs",
+        "Add passing and failing cases",
+        "Run the test command"
+      ],
       expectedResult: "Future AI edits fail tests if they break the same requirement."
     }
   ];
@@ -229,19 +229,43 @@ function buildSummary(
   riskFiles: RiskFile[],
   locale: Locale
 ): string {
+  const riskFindings = findings.filter((finding) => finding.severity !== "info");
+
   if (locale === "ko") {
-    if (findings.length > 0) {
-      return `${snapshot.owner}/${snapshot.repo}의 ${snapshot.filePaths.length}개 파일 경로와 ${snapshot.textFiles.length}개 주요 파일을 스캔했습니다. 입력한 의도와 관련된 위험 신호 ${findings.length}개를 발견했고, 우선 확인할 파일은 ${riskFiles.map((file) => file.path).join(", ")}입니다.`;
+    if (riskFindings.length > 0) {
+      return `${snapshot.owner}/${snapshot.repo}의 ${snapshot.filePaths.length}개 파일 경로와 ${snapshot.textFiles.length}개 주요 파일을 스캔했습니다. 입력한 의도와 관련된 위험 신호 ${riskFindings.length}개를 발견했고, 우선 확인할 파일은 ${riskFiles.map((file) => file.path).join(", ")}입니다.`;
     }
 
     return `${snapshot.owner}/${snapshot.repo}의 ${snapshot.filePaths.length}개 파일 경로와 ${snapshot.textFiles.length}개 주요 파일을 스캔했습니다. 결정적 스캐너 기준의 치명적 위험은 발견하지 못했지만, 원격 스캔이라 실제 테스트 실행은 별도로 필요합니다.`;
   }
 
-  if (findings.length > 0) {
-    return `Scanned ${snapshot.filePaths.length} file paths and ${snapshot.textFiles.length} key files from ${snapshot.owner}/${snapshot.repo}. Found ${findings.length} risk signal(s) related to the requested intent. Review ${riskFiles.map((file) => file.path).join(", ")} first.`;
+  if (riskFindings.length > 0) {
+    return `Scanned ${snapshot.filePaths.length} file paths and ${snapshot.textFiles.length} key files from ${snapshot.owner}/${snapshot.repo}. Found ${riskFindings.length} risk signal(s) related to the requested intent. Review ${riskFiles.map((file) => file.path).join(", ")} first.`;
   }
 
   return `Scanned ${snapshot.filePaths.length} file paths and ${snapshot.textFiles.length} key files from ${snapshot.owner}/${snapshot.repo}. No critical deterministic risks were found, but remote scans still need real test execution before shipping.`;
+}
+
+function buildCoverageFinding(snapshot: GitHubRepoSnapshot, locale: Locale): Finding {
+  if (locale === "ko") {
+    return {
+      severity: "info",
+      title: "분석 범위",
+      evidence: `${snapshot.owner}/${snapshot.repo}에서 ${snapshot.filePaths.length}개 파일 경로와 ${snapshot.textFiles.length}개 주요 파일을 가져와 static scan을 수행했습니다.`,
+      recommendation:
+        "결정적 위험 신호는 발견되지 않았습니다. 이 repo가 문서/spec 중심이라면 실제 앱 소스 repo를 연결하거나, 배포 전 로컬 테스트/E2E 검증을 추가하세요.",
+      relatedFiles: []
+    };
+  }
+
+  return {
+    severity: "info",
+    title: "Analysis coverage",
+    evidence: `Fetched ${snapshot.filePaths.length} file paths and ${snapshot.textFiles.length} key files from ${snapshot.owner}/${snapshot.repo} for static scanning.`,
+    recommendation:
+      "No deterministic risk signals were found. If this repository is docs/spec-heavy, connect the actual app source repository or add local test/E2E verification before shipping.",
+    relatedFiles: []
+  };
 }
 
 function localizeFindings(findings: Finding[], locale: Locale): Finding[] {

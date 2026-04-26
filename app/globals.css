@@ -288,6 +288,15 @@ h2 {
   background: #fbfbf9;
 }
 
+.empty-state {
+  margin: 0;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 14px;
+  color: var(--muted);
+  background: #fbfbf9;
+}
+
 .list-item strong,
 .list-item span {
   display: block;

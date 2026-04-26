@@ -65,6 +65,63 @@ describe("runAnalysis for non-demo repositories", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("does not label documentation files as risk files when no risk signals are found", async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+
+      if (href === "https://api.github.com/repos/Huride/puppy") {
+        return jsonResponse({
+          default_branch: "main"
+        });
+      }
+
+      if (href === "https://api.github.com/repos/Huride/puppy/git/trees/main?recursive=1") {
+        return jsonResponse({
+          tree: [
+            { path: "CMUX_x_AIM_Hackathon_Guide_정리.md", type: "blob", size: 14383 },
+            { path: "docs/superpowers/plans/2026-04-26-puppy-mvp.md", type: "blob", size: 34872 },
+            { path: "docs/superpowers/specs/2026-04-26-puppy-design.md", type: "blob", size: 8047 }
+          ]
+        });
+      }
+
+      if (
+        href ===
+        "https://raw.githubusercontent.com/Huride/puppy/main/CMUX_x_AIM_Hackathon_Guide_%EC%A0%95%EB%A6%AC.md"
+      ) {
+        return textResponse("# Hackathon guide");
+      }
+
+      if (href === "https://raw.githubusercontent.com/Huride/puppy/main/docs/superpowers/plans/2026-04-26-puppy-mvp.md") {
+        return textResponse("# Puppy MVP plan");
+      }
+
+      if (href === "https://raw.githubusercontent.com/Huride/puppy/main/docs/superpowers/specs/2026-04-26-puppy-design.md") {
+        return textResponse("# Puppy design");
+      }
+
+      throw new Error(`Unexpected fetch: ${href}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const report = await runAnalysis({
+        repoUrl: "https://github.com/Huride/puppy",
+        intent: "비로그인 사용자는 /admin에 접근하면 /login으로 이동해야 합니다.",
+        locale: "ko"
+      });
+
+      expect(report.riskFiles).toEqual([]);
+      expect(report.findings.map((finding) => finding.title)).toContain("분석 범위");
+      expect(report.findings[0]?.evidence).toContain("3개 주요 파일");
+      expect(report.fixPrompt).toContain("결정적 위험 파일 없음");
+      expect(report.fixPrompt).not.toContain("CMUX_x_AIM_Hackathon_Guide_정리.md");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 function jsonResponse(body: unknown): Response {
