@@ -38,7 +38,7 @@ export async function fetchGitHubRepoSnapshot(repo: ParsedGitHubRepo): Promise<G
   const filePaths = (treeResponse.tree ?? [])
     .filter((item) => item.type === "blob" && item.path)
     .map((item) => ({ path: item.path as string, size: item.size ?? 0 }));
-  const selectedFiles = filePaths.filter(isUsefulTextFile).slice(0, MAX_TEXT_FILES);
+  const selectedFiles = filePaths.filter(isUsefulTextFile).sort((a, b) => scoreTextFile(b.path) - scoreTextFile(a.path)).slice(0, MAX_TEXT_FILES);
   const textFiles: GitHubTextFile[] = [];
 
   for (const file of selectedFiles) {
@@ -103,17 +103,48 @@ function isUsefulTextFile(file: { path: string; size: number }): boolean {
     return true;
   }
 
-  if (/\.(ts|tsx|js|jsx|mjs|cjs|json|md|env\.example|css)$/.test(file.path) === false) {
+  if (isIgnoredGeneratedOrVendoredPath(file.path)) {
     return false;
+  }
+
+  if (/\.(swift|plist|storyboard|xib|pbxproj|xcconfig|ts|tsx|js|jsx|mjs|cjs|json|md|env\.example|css)$/.test(file.path) === false) {
+    return false;
+  }
+
+  if (isIosProjectFile(file.path)) {
+    return true;
   }
 
   if (/^[^/]+\.md$/.test(file.path) || file.path.startsWith("docs/")) {
     return true;
   }
 
-  return /^(app|pages|src|lib|components|middleware|server|api|routes|utils|hooks|styles|config|prisma|supabase)\b/.test(
+  return /^(Application|Sources|Tests|app|pages|src|lib|components|middleware|server|api|routes|utils|hooks|styles|config|prisma|supabase)\b/.test(
     file.path
   );
+}
+
+function isIosProjectFile(path: string): boolean {
+  return /\.(swift|plist|storyboard|xib|pbxproj|xcconfig)$/.test(path);
+}
+
+function isIgnoredGeneratedOrVendoredPath(path: string): boolean {
+  return /(^|\/)(Pods|Carthage|DerivedData|build|\.build|node_modules|vendor|sandbox)(\/|$)/.test(path) || /(^|\/)xcuserdata(\/|$)/.test(path);
+}
+
+function scoreTextFile(path: string): number {
+  let score = 0;
+
+  if (path.includes("/NewMogrige/")) score += 50;
+  if (path.startsWith("Application/")) score += 30;
+  if (/\.(swift)$/.test(path)) score += 25;
+  if (/Info\.plist$/.test(path)) score += 22;
+  if (/\.(storyboard|xib)$/.test(path)) score += 18;
+  if (/project\.pbxproj$/.test(path)) score += 16;
+  if (path === "package.json") score += 15;
+  if (/^[^/]+\.md$/.test(path) || path.startsWith("docs/")) score += 5;
+
+  return score;
 }
 
 function parsePackageJson(content: string): Record<string, unknown> | null {

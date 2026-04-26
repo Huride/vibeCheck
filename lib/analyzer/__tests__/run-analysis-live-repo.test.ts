@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { generateGeminiReportPatch } from "@/lib/analyzer/gemini";
 import { runAnalysis } from "../run-analysis";
 
 vi.mock("@/lib/analyzer/gemini", () => ({
@@ -118,6 +119,167 @@ describe("runAnalysis for non-demo repositories", () => {
       expect(report.findings[0]?.evidence).toContain("3개 주요 파일");
       expect(report.fixPrompt).toContain("결정적 위험 파일 없음");
       expect(report.fixPrompt).not.toContain("CMUX_x_AIM_Hackathon_Guide_정리.md");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces iOS production-readiness risks for Swift app repositories", async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+
+      if (href === "https://api.github.com/repos/ProjectInTheClass/mogrige") {
+        return jsonResponse({
+          default_branch: "master"
+        });
+      }
+
+      if (href === "https://api.github.com/repos/ProjectInTheClass/mogrige/git/trees/master?recursive=1") {
+        return jsonResponse({
+          tree: [
+            { path: "Application/mogrige_update/NewMogrige.xcodeproj/project.pbxproj", type: "blob", size: 25065 },
+            {
+              path: "Application/mogrige_update/NewMogrige.xcodeproj/project.xcworkspace/xcuserdata/user.xcuserdatad/UserInterfaceState.xcuserstate",
+              type: "blob",
+              size: 52000
+            },
+            { path: "Application/mogrige_update/NewMogrige/DataManager.swift", type: "blob", size: 1100 },
+            { path: "Application/mogrige_update/NewMogrige/Info.plist", type: "blob", size: 1500 },
+            { path: "Application/mogrige_update/Pods/YPImagePicker/Source/Picker.swift", type: "blob", size: 2000 },
+            { path: "Application/mogrige_update/Pods/YPImagePicker/Source/Pages/Photo/PostiOS10PhotoCapture.swift", type: "blob", size: 2000 },
+            { path: "sandbox/Sample/Sample.xcodeproj/project.pbxproj", type: "blob", size: 22000 },
+            { path: "sandbox/Sample/SampleTests/SampleTests.swift", type: "blob", size: 900 },
+            { path: "sandbox/walkthrough-swift-ios-onboarding-master/README.md", type: "blob", size: 900 },
+            { path: "README.md", type: "blob", size: 500 }
+          ]
+        });
+      }
+
+      if (
+        href ===
+        "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige/DataManager.swift"
+      ) {
+        return textResponse("import UIKit\nfinal class DataManager {}");
+      }
+
+      if (href === "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige/Info.plist") {
+        return textResponse("<plist><dict></dict></plist>");
+      }
+
+      if (
+        href ===
+        "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige.xcodeproj/project.pbxproj"
+      ) {
+        return textResponse("PRODUCT_BUNDLE_IDENTIFIER = com.example.mogrige;");
+      }
+
+      if (href === "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/README.md") {
+        return textResponse("# mogrige");
+      }
+
+      throw new Error(`Unexpected fetch: ${href}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const report = await runAnalysis({
+        repoUrl: "https://github.com/ProjectInTheClass/mogrige",
+        intent: "실제 상용 iOS 앱이 배포 가능한 상태인지 검증해줘.",
+        locale: "ko"
+      });
+
+      expect(report.findings.map((finding) => finding.title)).toEqual(
+        expect.arrayContaining([
+          "iOS 앱 소스 분석 범위",
+          "Xcode 사용자 상태 파일이 repo에 포함됨",
+          "테스트 타깃 또는 테스트 파일이 확인되지 않음",
+          "CI 검증 workflow가 확인되지 않음",
+          "Pods 디렉터리가 repo에 포함됨"
+        ])
+      );
+      expect(report.commandResults.map((result) => result.command)).toContain(
+        "xcodebuild -project Application/mogrige_update/NewMogrige.xcodeproj -scheme NewMogrige test"
+      );
+      expect(report.riskFiles.map((file) => file.path)).toContain(
+        "Application/mogrige_update/NewMogrige.xcodeproj/project.xcworkspace/xcuserdata/user.xcuserdatad/UserInterfaceState.xcuserstate"
+      );
+      expect(report.findings[0]?.evidence).toContain("Xcode 프로젝트 1개");
+      expect(report.riskFiles.map((file) => file.path).some((path) => path.startsWith("sandbox/"))).toBe(false);
+      expect(report.riskFiles.map((file) => file.path)).not.toContain(
+        "Application/mogrige_update/Pods/YPImagePicker/Source/Pages/Photo/PostiOS10PhotoCapture.swift"
+      );
+      expect(report.score).toBeLessThan(78);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps deterministic findings when Gemini adds a report patch", async () => {
+    vi.mocked(generateGeminiReportPatch).mockResolvedValueOnce({
+      summary: "AI 보강 요약",
+      findings: [
+        {
+          severity: "warning",
+          title: "AI 추가 검토 항목",
+          evidence: "AI가 추가로 점검할 항목을 제안했습니다.",
+          recommendation: "출시 전 수동 검증을 추가하세요.",
+          relatedFiles: []
+        }
+      ]
+    });
+
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+
+      if (href === "https://api.github.com/repos/ProjectInTheClass/mogrige") {
+        return jsonResponse({ default_branch: "master" });
+      }
+
+      if (href === "https://api.github.com/repos/ProjectInTheClass/mogrige/git/trees/master?recursive=1") {
+        return jsonResponse({
+          tree: [
+            { path: "Application/mogrige_update/NewMogrige.xcodeproj/project.pbxproj", type: "blob", size: 25065 },
+            {
+              path: "Application/mogrige_update/NewMogrige.xcodeproj/project.xcworkspace/xcuserdata/user.xcuserdatad/UserInterfaceState.xcuserstate",
+              type: "blob",
+              size: 52000
+            },
+            { path: "Application/mogrige_update/NewMogrige/DataManager.swift", type: "blob", size: 1100 }
+          ]
+        });
+      }
+
+      if (
+        href ===
+        "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige/DataManager.swift"
+      ) {
+        return textResponse("import UIKit\nfinal class DataManager {}");
+      }
+
+      if (
+        href ===
+        "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige.xcodeproj/project.pbxproj"
+      ) {
+        return textResponse("PRODUCT_BUNDLE_IDENTIFIER = com.example.mogrige;");
+      }
+
+      throw new Error(`Unexpected fetch: ${href}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const report = await runAnalysis({
+        repoUrl: "https://github.com/ProjectInTheClass/mogrige",
+        intent: "상용 iOS 앱 출시 전 리스크를 검증해줘.",
+        locale: "ko"
+      });
+
+      expect(report.summary).toBe("AI 보강 요약");
+      expect(report.findings.map((finding) => finding.title)).toEqual(
+        expect.arrayContaining(["Xcode 사용자 상태 파일이 repo에 포함됨", "AI 추가 검토 항목"])
+      );
     } finally {
       vi.unstubAllGlobals();
     }

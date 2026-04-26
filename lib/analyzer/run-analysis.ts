@@ -38,10 +38,29 @@ export async function runAnalysis(request: AnalyzeRequest): Promise<VibeReport> 
   return {
     ...fallbackReport,
     summary: aiPatch.summary || fallbackReport.summary,
-    findings: aiPatch.findings?.length ? aiPatch.findings : fallbackReport.findings,
+    findings: mergeFindings(fallbackReport.findings, aiPatch.findings),
     suggestedTests: aiPatch.suggestedTests?.length ? aiPatch.suggestedTests : fallbackReport.suggestedTests,
     fixPrompt: aiPatch.fixPrompt || fallbackReport.fixPrompt
   };
+}
+
+function mergeFindings(baseFindings: Finding[], aiFindings: Finding[] | undefined): Finding[] {
+  if (!aiFindings?.length) {
+    return baseFindings;
+  }
+
+  const merged = [...baseFindings];
+  const existingKeys = new Set(baseFindings.map((finding) => `${finding.title}:${finding.relatedFiles.join(",")}`));
+
+  for (const finding of aiFindings) {
+    const key = `${finding.title}:${finding.relatedFiles.join(",")}`;
+    if (!existingKeys.has(key)) {
+      merged.push(finding);
+      existingKeys.add(key);
+    }
+  }
+
+  return merged;
 }
 
 function normalizeLocale(locale: Locale | undefined): Locale {
@@ -54,8 +73,11 @@ function createLiveRepoReport(
   intent: string,
   locale: Locale
 ): VibeReport {
-  const riskFindings = localizeFindings(scanTextFiles(snapshot.textFiles, intent), locale);
-  const findings = riskFindings.length > 0 ? riskFindings : [buildCoverageFinding(snapshot, locale)];
+  const deterministicFindings = [
+    ...buildRepositoryStructureFindings(snapshot, locale),
+    ...localizeFindings(scanTextFiles(snapshot.textFiles, intent), locale)
+  ];
+  const findings = deterministicFindings.length > 0 ? deterministicFindings : [buildCoverageFinding(snapshot, locale)];
   const riskFiles = buildRiskFiles(snapshot, findings, intent, locale);
   const commandResults = buildCommandResults(snapshot, locale);
   const suggestedTests = buildSuggestedTests(intent, locale, riskFiles.length > 0);
@@ -119,6 +141,10 @@ function findIntentRelatedPaths(paths: string[], intent: string): string[] {
   const tokens = [...routeTokens, ...wordTokens].filter((token) => !["the", "and", "with", "should"].includes(token));
 
   return paths.filter((path) => {
+    if (isVendoredOrSandboxPath(path)) {
+      return false;
+    }
+
     const normalizedPath = path.toLowerCase();
     return tokens.some((token) => normalizedPath.includes(token.toLowerCase()));
   });
@@ -126,7 +152,20 @@ function findIntentRelatedPaths(paths: string[], intent: string): string[] {
 
 function buildCommandResults(snapshot: GitHubRepoSnapshot, locale: Locale): CommandResult[] {
   const scripts = getPackageScripts(snapshot.packageJson);
+  const xcodeProject = findPrimaryXcodeProject(snapshot.filePaths);
   const results: CommandResult[] = [];
+
+  if (xcodeProject) {
+    const scheme = xcodeProject.split("/").at(-1)?.replace(/\.xcodeproj$/, "") || "App";
+    results.push({
+      command: `xcodebuild -project ${xcodeProject} -scheme ${scheme} test`,
+      status: "skipped",
+      outputExcerpt:
+        locale === "ko"
+          ? "원격 GitHub 스캔에서는 Xcode 테스트를 실행하지 않았습니다. 로컬 macOS/Xcode 환경에서 실행해야 합니다."
+          : "Remote GitHub scan did not run Xcode tests. Run this locally on macOS with Xcode."
+    });
+  }
 
   if (scripts.test) {
     results.push({
@@ -162,6 +201,21 @@ function buildCommandResults(snapshot: GitHubRepoSnapshot, locale: Locale): Comm
   }
 
   return results;
+}
+
+function findPrimaryXcodeProject(paths: string[]): string | null {
+  const projects = paths.filter((path) => path.endsWith(".xcodeproj/project.pbxproj") && path.includes("/Pods/") === false);
+  const project = projects.sort((a, b) => scoreProjectPath(b) - scoreProjectPath(a))[0];
+  return project ? project.replace(/\/project\.pbxproj$/, "") : null;
+}
+
+function scoreProjectPath(path: string): number {
+  let score = 0;
+  if (path.startsWith("Application/")) score += 20;
+  if (path.includes("/NewMogrige.")) score += 20;
+  if (path.includes("/Pods/")) score -= 50;
+  if (path.includes("/sandbox/")) score -= 40;
+  return score;
 }
 
 function getPackageScripts(packageJson: Record<string, unknown> | null): Record<string, string | undefined> {
@@ -221,6 +275,112 @@ function calculateScore(findings: Finding[]): number {
   }
 
   return 78;
+}
+
+function buildRepositoryStructureFindings(snapshot: GitHubRepoSnapshot, locale: Locale): Finding[] {
+  const findings: Finding[] = [];
+  const swiftFiles = snapshot.filePaths.filter((path) => path.endsWith(".swift") && isVendoredOrSandboxPath(path) === false);
+  const xcodeProjects = snapshot.filePaths.filter((path) => path.endsWith(".xcodeproj/project.pbxproj") && isVendoredOrSandboxPath(path) === false);
+  const xcodeUserFiles = snapshot.filePaths.filter(
+    (path) => isVendoredOrSandboxPath(path) === false && /(^|\/)xcuserdata(\/|$)|UserInterfaceState\.xcuserstate$/.test(path)
+  );
+  const podsFiles = Array.from(new Set(snapshot.filePaths.filter((path) => /(^|\/)Pods(\/|$)/.test(path)).map(getPodsRoot)));
+  const testFiles = snapshot.filePaths.filter(
+    (path) => isVendoredOrSandboxPath(path) === false && /(^|\/)(Tests?|UITests?)(\/|$)|Tests?\.swift$|UITests?\.swift$/i.test(path)
+  );
+  const ciFiles = snapshot.filePaths.filter((path) => /^\.github\/workflows\/.+\.ya?ml$|^\.circleci\/config\.yml$|^bitrise\.yml$|^fastlane\//.test(path));
+
+  if (swiftFiles.length > 0 || xcodeProjects.length > 0) {
+    findings.push({
+      severity: "info",
+      title: locale === "ko" ? "iOS 앱 소스 분석 범위" : "iOS app source coverage",
+      evidence:
+        locale === "ko"
+          ? `${snapshot.owner}/${snapshot.repo}에서 Swift 파일 ${swiftFiles.length}개, Xcode 프로젝트 ${xcodeProjects.length}개, 주요 텍스트 파일 ${snapshot.textFiles.length}개를 확인했습니다.`
+          : `Checked ${swiftFiles.length} Swift files, ${xcodeProjects.length} Xcode project(s), and ${snapshot.textFiles.length} key text files from ${snapshot.owner}/${snapshot.repo}.`,
+      recommendation:
+        locale === "ko"
+          ? "원격 스캔은 코드를 읽는 단계이며, 최종 배포 판단에는 xcodebuild test/build 실행 결과가 필요합니다."
+          : "Remote scanning reads code only; final ship-readiness still needs xcodebuild test/build results.",
+      relatedFiles: xcodeProjects.slice(0, 2)
+    });
+  }
+
+  if (xcodeUserFiles.length > 0) {
+    findings.push({
+      severity: "warning",
+      title: locale === "ko" ? "Xcode 사용자 상태 파일이 repo에 포함됨" : "Xcode user state files are committed",
+      evidence:
+        locale === "ko"
+          ? `${xcodeUserFiles.length}개 xcuserdata/UserInterfaceState 파일이 repository에 포함되어 있습니다. 예: ${xcodeUserFiles[0]}`
+          : `${xcodeUserFiles.length} xcuserdata/UserInterfaceState file(s) are committed. Example: ${xcodeUserFiles[0]}`,
+      recommendation:
+        locale === "ko"
+          ? "xcuserdata와 UserInterfaceState.xcuserstate를 .gitignore에 추가하고 repo에서 제거하세요."
+          : "Add xcuserdata and UserInterfaceState.xcuserstate to .gitignore and remove them from the repository.",
+      relatedFiles: xcodeUserFiles.slice(0, 3)
+    });
+  }
+
+  if ((swiftFiles.length > 0 || xcodeProjects.length > 0) && testFiles.length === 0) {
+    findings.push({
+      severity: "warning",
+      title: locale === "ko" ? "테스트 타깃 또는 테스트 파일이 확인되지 않음" : "No test target or test files found",
+      evidence:
+        locale === "ko"
+          ? "Swift/Xcode 앱 파일은 확인됐지만 Tests, UITests 또는 *Tests.swift 파일을 찾지 못했습니다."
+          : "Swift/Xcode app files were found, but no Tests, UITests, or *Tests.swift files were detected.",
+      recommendation:
+        locale === "ko"
+          ? "핵심 플로우에 대한 Unit/UI 테스트 타깃을 추가하고 xcodebuild test를 배포 전 필수 검증으로 두세요."
+          : "Add Unit/UI test targets for core flows and require xcodebuild test before shipping.",
+      relatedFiles: xcodeProjects.slice(0, 1)
+    });
+  }
+
+  if ((swiftFiles.length > 0 || xcodeProjects.length > 0) && ciFiles.length === 0) {
+    findings.push({
+      severity: "warning",
+      title: locale === "ko" ? "CI 검증 workflow가 확인되지 않음" : "No CI verification workflow found",
+      evidence:
+        locale === "ko"
+          ? ".github/workflows, fastlane, bitrise.yml 등 자동 빌드/테스트 구성이 확인되지 않았습니다."
+          : "No .github/workflows, fastlane, bitrise.yml, or equivalent automated build/test config was found.",
+      recommendation:
+        locale === "ko"
+          ? "PR마다 xcodebuild build/test를 실행하는 CI 또는 배포 전 체크를 추가하세요."
+          : "Add CI or a pre-release check that runs xcodebuild build/test on every PR.",
+      relatedFiles: xcodeProjects.slice(0, 1)
+    });
+  }
+
+  if (podsFiles.length > 0) {
+    findings.push({
+      severity: "warning",
+      title: locale === "ko" ? "Pods 디렉터리가 repo에 포함됨" : "Pods directory is committed",
+      evidence:
+        locale === "ko"
+          ? `${podsFiles.length}개 Pods 디렉터리가 repository에 포함되어 있습니다. 의존성 코드까지 함께 추적되어 리뷰와 보안 스캔 노이즈가 커집니다.`
+          : `${podsFiles.length} Pods directories are committed, which adds dependency code to reviews and security scans.`,
+      recommendation:
+        locale === "ko"
+          ? "팀 정책상 vendoring이 꼭 필요하지 않다면 Podfile/Podfile.lock 중심으로 관리하고 Pods는 제외하는 방식을 검토하세요."
+          : "Unless your team intentionally vendors dependencies, consider tracking Podfile/Podfile.lock and excluding Pods.",
+      relatedFiles: podsFiles.slice(0, 1)
+    });
+  }
+
+  return findings;
+}
+
+function isVendoredOrSandboxPath(path: string): boolean {
+  return /(^|\/)(Pods|Carthage|DerivedData|build|\.build|node_modules|vendor|sandbox)(\/|$)/.test(path);
+}
+
+function getPodsRoot(path: string): string {
+  const parts = path.split("/");
+  const podsIndex = parts.indexOf("Pods");
+  return podsIndex >= 0 ? parts.slice(0, podsIndex + 1).join("/") : path;
 }
 
 function buildSummary(

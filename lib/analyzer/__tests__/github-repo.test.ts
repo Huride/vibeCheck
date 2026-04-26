@@ -53,6 +53,74 @@ describe("fetchGitHubRepoSnapshot", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("prioritizes iOS app source files and skips vendored or user-specific Xcode files", async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+
+      if (href === "https://api.github.com/repos/ProjectInTheClass/mogrige") {
+        return jsonResponse({ default_branch: "master" });
+      }
+
+      if (href === "https://api.github.com/repos/ProjectInTheClass/mogrige/git/trees/master?recursive=1") {
+        return jsonResponse({
+          tree: [
+            { path: "Application/mogrige_update/Pods/YPImagePicker/Source/Picker.swift", type: "blob", size: 1200 },
+            {
+              path: "Application/mogrige_update/NewMogrige.xcodeproj/project.xcworkspace/xcuserdata/user.xcuserdatad/UserInterfaceState.xcuserstate",
+              type: "blob",
+              size: 50000
+            },
+            { path: "sandbox/example/ExampleApp/ViewController.swift", type: "blob", size: 900 },
+            { path: "Application/mogrige_update/NewMogrige/DataManager.swift", type: "blob", size: 1000 },
+            { path: "Application/mogrige_update/NewMogrige/Info.plist", type: "blob", size: 1600 },
+            { path: "Application/mogrige_update/NewMogrige/Base.lproj/Main.storyboard", type: "blob", size: 1800 },
+            { path: "Application/mogrige_update/NewMogrige.xcodeproj/project.pbxproj", type: "blob", size: 25065 }
+          ]
+        });
+      }
+
+      if (href === "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige/DataManager.swift") {
+        return textResponse("import UIKit\nfinal class DataManager {}");
+      }
+
+      if (href === "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige/Info.plist") {
+        return textResponse("<plist><dict></dict></plist>");
+      }
+
+      if (
+        href ===
+        "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige/Base.lproj/Main.storyboard"
+      ) {
+        return textResponse("<document></document>");
+      }
+
+      if (href === "https://raw.githubusercontent.com/ProjectInTheClass/mogrige/master/Application/mogrige_update/NewMogrige.xcodeproj/project.pbxproj") {
+        return textResponse("// !$*UTF8*$!");
+      }
+
+      throw new Error(`Unexpected fetch: ${href}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const snapshot = await fetchGitHubRepoSnapshot({
+        owner: "ProjectInTheClass",
+        repo: "mogrige",
+        normalizedUrl: "https://github.com/ProjectInTheClass/mogrige"
+      });
+
+      expect(snapshot.textFiles.map((file) => file.path)).toEqual([
+        "Application/mogrige_update/NewMogrige/DataManager.swift",
+        "Application/mogrige_update/NewMogrige/Info.plist",
+        "Application/mogrige_update/NewMogrige/Base.lproj/Main.storyboard",
+        "Application/mogrige_update/NewMogrige.xcodeproj/project.pbxproj"
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 function jsonResponse(body: unknown): Response {
