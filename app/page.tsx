@@ -9,6 +9,7 @@ const DEMO_INTENT_EN =
   "I wanted logged-in users to access /dashboard and anonymous users to be redirected to /login. The app should not rely only on client-side checks.";
 const DEMO_INTENT_KO =
   "로그인한 사용자만 /dashboard에 접근할 수 있어야 하고, 비로그인 사용자는 /login으로 이동해야 합니다. 클라이언트 상태에만 의존하면 안 됩니다.";
+const PROGRESS_STEP_INTERVAL_MS = 1500;
 
 const copy = {
   en: {
@@ -144,14 +145,15 @@ export default function Home() {
 
     const interval = window.setInterval(() => {
       setCurrentStepCount((step) => Math.min(step + 1, progressSteps.length));
-    }, 700);
+    }, PROGRESS_STEP_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
   }, [isLoading, progressSteps.length]);
 
-  const activeStepCount = useMemo(() => (isLoading || report ? currentStepCount : 0), [
+  const activeStepCount = useMemo(() => (isLoading ? currentStepCount : report ? progressSteps.length : 0), [
     currentStepCount,
     isLoading,
+    progressSteps.length,
     report
   ]);
   const progressPercent = Math.round((activeStepCount / progressSteps.length) * 100);
@@ -172,8 +174,8 @@ export default function Home() {
     const requestSequence = requestSequenceRef.current + 1;
     requestSequenceRef.current = requestSequence;
 
-    setIsLoading(true);
     setCurrentStepCount(1);
+    setIsLoading(true);
     setError("");
     setReport(null);
     setCopyStatus("");
@@ -218,6 +220,23 @@ export default function Home() {
     }
   }
 
+  function clearAnalysisState() {
+    setReport(null);
+    setError("");
+    setCopyStatus("");
+    setCurrentStepCount(0);
+  }
+
+  function updateRepoUrl(nextRepoUrl: string) {
+    setRepoUrl(nextRepoUrl);
+    clearAnalysisState();
+  }
+
+  function updateIntent(nextIntent: string) {
+    setIntent(nextIntent);
+    clearAnalysisState();
+  }
+
   async function copyFixPrompt(prompt: string) {
     setCopyStatus("");
 
@@ -236,10 +255,7 @@ export default function Home() {
   function switchLocale() {
     const nextLocale = locale === "ko" ? "en" : "ko";
     setLocale(nextLocale);
-    setReport(null);
-    setError("");
-    setCopyStatus("");
-    setCurrentStepCount(0);
+    clearAnalysisState();
   }
 
   return (
@@ -271,7 +287,7 @@ export default function Home() {
             id="repoUrl"
             placeholder={activeCopy.repoPlaceholder as string}
             value={repoUrl}
-            onChange={(event) => setRepoUrl(event.target.value)}
+            onChange={(event) => updateRepoUrl(event.target.value)}
           />
         </div>
         <div className="field">
@@ -281,7 +297,7 @@ export default function Home() {
             id="intent"
             placeholder={activeCopy.intentPlaceholder as string}
             value={intent}
-            onChange={(event) => setIntent(event.target.value)}
+            onChange={(event) => updateIntent(event.target.value)}
             rows={5}
           />
         </div>
@@ -296,10 +312,7 @@ export default function Home() {
             onClick={() => {
               setRepoUrl(DEMO_REPO_URL);
               setIntent(demoIntent);
-              setReport(null);
-              setError("");
-              setCopyStatus("");
-              setCurrentStepCount(0);
+              clearAnalysisState();
             }}
           >
             {activeCopy.loadDemo}
