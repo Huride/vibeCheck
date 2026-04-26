@@ -212,6 +212,39 @@ button.secondary {
   padding: 16px 18px;
 }
 
+.progress-log-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.progress-log-header .eyebrow {
+  margin-bottom: 0;
+}
+
+.progress-log-header span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.progress-meter {
+  height: 8px;
+  margin: 12px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ededeb;
+}
+
+.progress-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 220ms ease;
+}
+
 .progress-log ul,
 .steps-list {
   margin: 0;

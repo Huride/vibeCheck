@@ -21,10 +21,14 @@ const copy = {
     scoreCardText: "Enter a repo or load the demo to start.",
     repoLabel: "GitHub repo URL",
     repoPlaceholder: "Enter a GitHub repository URL.",
-    intentLabel: "What did you mean to build?",
+    intentLabel: "Review request",
     intentPlaceholder: "Briefly describe what kind of project this is and what you want VibeCheck to verify.",
     run: "Run VibeCheck",
     running: "Running...",
+    loadingStatus: "Analyzing",
+    loadingText: "VibeCheck is scanning the repository step by step.",
+    progressUnit: "steps",
+    progressStatus: "Analysis progress",
     loadDemo: "Load demo",
     networkError: "VibeCheck could not reach the analyzer. Try again from the hosted demo or local dev server.",
     analysisLog: "Analysis log",
@@ -69,10 +73,14 @@ const copy = {
     scoreCardText: "repo를 입력하거나 데모를 불러오면 시작합니다.",
     repoLabel: "GitHub repo URL",
     repoPlaceholder: "깃허브 URL을 입력해주세요.",
-    intentLabel: "만들려던 기능",
+    intentLabel: "검토 요청사항",
     intentPlaceholder: "어떤 프로젝트인지, 무엇을 검증하고 싶은지 간단하게 설명해주세요.",
     run: "VibeCheck 실행",
     running: "실행 중...",
+    loadingStatus: "분석 중",
+    loadingText: "VibeCheck가 repo를 단계별로 확인하고 있습니다.",
+    progressUnit: "단계",
+    progressStatus: "분석 진행률",
     loadDemo: "데모 불러오기",
     networkError: "분석기에 연결하지 못했습니다. 호스팅 데모 또는 로컬 개발 서버에서 다시 시도하세요.",
     analysisLog: "분석 로그",
@@ -114,6 +122,7 @@ export default function Home() {
   const [repoUrl, setRepoUrl] = useState("");
   const [intent, setIntent] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [currentStepCount, setCurrentStepCount] = useState(0);
   const [error, setError] = useState("");
   const [report, setReport] = useState<VibeReport | null>(null);
   const [copyStatus, setCopyStatus] = useState("");
@@ -128,19 +137,43 @@ export default function Home() {
     document.documentElement.lang = locale;
   }, [locale]);
 
-  const activeStepCount = useMemo(() => (isLoading ? progressSteps.length : report ? progressSteps.length : 0), [
+  useEffect(() => {
+    if (!isLoading) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setCurrentStepCount((step) => Math.min(step + 1, progressSteps.length));
+    }, 700);
+
+    return () => window.clearInterval(interval);
+  }, [isLoading, progressSteps.length]);
+
+  const activeStepCount = useMemo(() => (isLoading || report ? currentStepCount : 0), [
+    currentStepCount,
     isLoading,
-    progressSteps.length,
     report
   ]);
-  const scoreCardLabel = report ? (activeCopy.report as string) : (activeCopy.scoreCardLabel as string);
-  const scoreCardVerdict = report ? formatVerdict(report.verdict, locale) : (activeCopy.waitingVerdict as string);
+  const progressPercent = Math.round((activeStepCount / progressSteps.length) * 100);
+  const progressStatus = `${activeCopy.progressStatus}: ${activeStepCount}/${progressSteps.length} ${activeCopy.progressUnit}`;
+  const scoreCardLabel = isLoading
+    ? (activeCopy.loadingStatus as string)
+    : report
+      ? (activeCopy.report as string)
+      : (activeCopy.scoreCardLabel as string);
+  const scoreCardVerdict = isLoading
+    ? `${activeStepCount}/${progressSteps.length} ${activeCopy.progressUnit}`
+    : report
+      ? formatVerdict(report.verdict, locale)
+      : (activeCopy.waitingVerdict as string);
+  const scoreCardText = isLoading ? (activeCopy.loadingText as string) : (activeCopy.scoreCardText as string);
 
   async function runVibeCheck() {
     const requestSequence = requestSequenceRef.current + 1;
     requestSequenceRef.current = requestSequence;
 
     setIsLoading(true);
+    setCurrentStepCount(1);
     setError("");
     setReport(null);
     setCopyStatus("");
@@ -159,13 +192,16 @@ export default function Home() {
 
       if (!payload.ok) {
         setError(payload.error);
+        setCurrentStepCount(0);
         return;
       }
 
+      setCurrentStepCount(progressSteps.length);
       setReport(payload.report);
     } catch {
       if (requestSequenceRef.current === requestSequence) {
         setError(activeCopy.networkError as string);
+        setCurrentStepCount(0);
       }
     } finally {
       if (requestSequenceRef.current === requestSequence) {
@@ -203,6 +239,7 @@ export default function Home() {
     setReport(null);
     setError("");
     setCopyStatus("");
+    setCurrentStepCount(0);
   }
 
   return (
@@ -222,7 +259,7 @@ export default function Home() {
         <div className="score-card">
           <span>{scoreCardLabel}</span>
           <strong>{scoreCardVerdict}</strong>
-          <p>{activeCopy.scoreCardText}</p>
+          <p>{scoreCardText}</p>
         </div>
       </section>
 
@@ -262,6 +299,7 @@ export default function Home() {
               setReport(null);
               setError("");
               setCopyStatus("");
+              setCurrentStepCount(0);
             }}
           >
             {activeCopy.loadDemo}
@@ -285,7 +323,13 @@ export default function Home() {
 
       {activeStepCount > 0 ? (
         <section className="panel progress-log" aria-live="polite">
-          <p className="eyebrow">{activeCopy.analysisLog}</p>
+          <div className="progress-log-header">
+            <p className="eyebrow">{activeCopy.analysisLog}</p>
+            <span>{progressStatus}</span>
+          </div>
+          <div aria-hidden="true" className="progress-meter">
+            <span style={{ width: `${progressPercent}%` }} />
+          </div>
           <ul>
             {progressLogs.slice(0, activeStepCount).map((log) => (
               <li key={log}>{log}</li>
