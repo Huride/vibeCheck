@@ -17,6 +17,15 @@ const progressSteps = [
   "Generating fix prompt"
 ];
 
+const progressLogs = [
+  "Queued repo fetch and workspace preparation.",
+  "Read package metadata and source file map.",
+  "Matched the requested feature to likely auth and route files.",
+  "Checked deterministic runtime and security risk signals.",
+  "Collected available verification commands and command evidence.",
+  "Generated a paste-ready repair prompt with verification steps."
+];
+
 export default function Home() {
   const [repoUrl, setRepoUrl] = useState(DEMO_REPO_URL);
   const [intent, setIntent] = useState(DEMO_INTENT);
@@ -165,6 +174,17 @@ export default function Home() {
         ))}
       </section>
 
+      {activeStepCount > 0 ? (
+        <section className="panel progress-log" aria-live="polite">
+          <p className="eyebrow">Analysis log</p>
+          <ul>
+            {progressLogs.slice(0, activeStepCount).map((log) => (
+              <li key={log}>{log}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {report ? (
         <ReportView
           copyStatus={copyStatus}
@@ -242,6 +262,22 @@ function ReportView({
               <strong>{result.command}</strong>
               <span>{result.status}</span>
               <p>{result.outputExcerpt}</p>
+            </article>
+          ))}
+        </div>
+
+        <h2>Suggested tests</h2>
+        <div className="list">
+          {report.suggestedTests.map((test) => (
+            <article key={test.title} className="list-item">
+              <strong>{test.title}</strong>
+              <span>{test.type}</span>
+              <ul className="steps-list">
+                {test.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ul>
+              <p>{test.expectedResult}</p>
             </article>
           ))}
         </div>

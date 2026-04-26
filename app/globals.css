@@ -201,6 +201,25 @@ button.secondary {
   overflow-wrap: anywhere;
 }
 
+.progress-log {
+  margin: -2px 0 18px;
+  padding: 16px 18px;
+}
+
+.progress-log ul,
+.steps-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.progress-log li,
+.steps-list li {
+  margin: 6px 0;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .report-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
